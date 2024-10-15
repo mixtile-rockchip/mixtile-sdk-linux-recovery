@@ -194,13 +194,14 @@ extern int do_patch_rkimg(const char *img, ssize_t offset, ssize_t size,
                           const char *blk_dev, const char *dst_file);
 
 extern bool is_sdboot;
+extern bool is_usbboot;
 int flash_normal(char *src_path, void *pupdate_cmd)
 {
     LOGI("%s:%d start.\n", __func__, __LINE__);
     PUPDATE_CMD pcmd = (PUPDATE_CMD)pupdate_cmd;
     int ret = 0;
 
-    if (is_sdboot || !isMtdDevice()) {
+    if (is_sdboot || is_usbboot || !isMtdDevice()) {
         //block
         char dst_file[256];
         /* record the already upgraded img name,

@@ -34,6 +34,7 @@
 #define URL_MAX_LENGTH 512
 #define CMDLINE_LENGTH 2048
 extern bool bSDBootUpdate;
+extern bool bUdiskUpdate;
 static int start_main (const char *binary, char *args[], int* pipefd)
 {
     pid_t pid = fork();
@@ -94,6 +95,7 @@ int do_rk_updateEngine(const char *binary, const char *path)
     LOGI("[%s] start with main.\n", __func__);
     char *update = "--update";
     char *update_sdboot = "--update=sdboot";
+    char *update_udisk = "--update=usbboot";
     int pipefd[2];
     if (pipe(pipefd) == -1) {
         LOGE("pipe error");
@@ -110,7 +112,7 @@ int do_rk_updateEngine(const char *binary, const char *path)
     args[2] = args_2;
     sprintf(args[2], "--image_url=%s", path);
 
-    if (bSDBootUpdate) {
+    if (bSDBootUpdate || bUdiskUpdate) {
         char path_second[64] = {0};
         char path_second_dir[64] = {0};
 
@@ -124,6 +126,8 @@ int do_rk_updateEngine(const char *binary, const char *path)
             sprintf(path_second, "%s/update_ota.img", path_second_dir);
             if (access(path_second, F_OK) == 0) {
                 sprintf(args[2], "--image_url=%s", path_second);
+            } else {
+                sprintf(args[2], "--image_url=%s", path);
             }
         }
     }
@@ -131,6 +135,8 @@ int do_rk_updateEngine(const char *binary, const char *path)
 
     if (bSDBootUpdate) {
         args[3] = (char *)update_sdboot;
+    } else if (bUdiskUpdate) {
+        args[3] = (char *)update_udisk;
     } else {
         args[3] = (char *)update;
     }
@@ -138,7 +144,7 @@ int do_rk_updateEngine(const char *binary, const char *path)
     args[4] = args_4;
     args[5] = NULL;
 
-    if (bSDBootUpdate) {
+    if (bSDBootUpdate || bUdiskUpdate) {
         // If SD boot, ignore --partition
         sprintf(args[4], "--partition=0x%s", "FFFF00");
     } else {

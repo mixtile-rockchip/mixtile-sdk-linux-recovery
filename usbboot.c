@@ -80,9 +80,6 @@ void ensure_udisk_mounted(bool *bMounted)
             }
         }
     }
-
-    if (bSucc)
-        *bMounted = false;
 }
 
 #define MaxLine 1024

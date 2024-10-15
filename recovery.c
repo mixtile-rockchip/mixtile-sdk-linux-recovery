@@ -1242,7 +1242,7 @@ main(int argc, char **argv)
         }
     } else if (usbupdate_package && bUdiskUpdate) {
         if (status == INSTALL_SUCCESS) {
-            char *udiskDev = strdup(get_mounted_device_from_path(EX_SDCARD_ROOT));
+            char *udiskDev = strdup(get_mounted_device_from_path(EX_UDISK_ROOT));
             ensure_path_unmounted(EX_UDISK_ROOT);
             /* Updating is finished here, we must print this message
              * in console, it shows user a specific message that

@@ -218,7 +218,16 @@ int main(int argc, char *argv[])
 
     while ((arg = getopt_long(argc, argv, "", engine_options, NULL)) != -1) {
         switch (arg) {
-        case 'u': is_update = true; if (optarg != NULL) is_sdboot = true; continue;
+        case 'u':
+            is_update = true;
+            if (optarg != NULL) {
+                if (strstr(optarg, "sdboot") != NULL) {
+                    is_sdboot = true;
+                } else if (strstr(optarg, "usbboot") != NULL) {
+                    is_usbboot = true;
+                }
+            }
+            continue;
         case 'c': version_url = optarg; continue;
         case 'm': misc_func = optarg; continue;
         case 'p': partition = optarg; continue;
@@ -244,10 +253,12 @@ int main(int argc, char *argv[])
     }
 
     if (is_update) {
-        if (optarg && (strstr(optarg, "usb") != NULL || strstr(optarg, "udisk") != NULL)) {
-            is_usbboot = true;
-            is_sdboot = false;
-            LOGI("*** will upgrade firmware from udisk ***");
+        if (is_usbboot) {
+            LOGI("*** will upgrade firmware from udisk ***\n");
+        } else if (is_sdboot) {
+            LOGI("*** will upgrade firmware from sdcard ***\n");
+        } else {
+            LOGI("*** will upgrade firmware from normal system ***\n");
         }
 
         if (is_sdboot || is_usbboot) {
