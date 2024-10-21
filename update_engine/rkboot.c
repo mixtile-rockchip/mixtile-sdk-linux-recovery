@@ -31,13 +31,16 @@
 
 USHORT m_usFlashDataSec;
 USHORT m_usFlashBootSec;
-DWORD  m_dwLoaderSize;
-DWORD  m_dwLoaderDataSize;
+USHORT m_usFlashHeadSec;
+DWORD m_dwLoaderSize;
+DWORD m_dwLoaderDataSize;
+DWORD m_dwLoaderHeadSize;
 DWORD uiSecNumPerIDB;
 size_t uiFlashPageSize;
 size_t uiFlashBlockSize;
 USHORT usPhyBlokcPerIDB;
 bool m_bRc4Disable;
+bool m_NewIDBFlag;
 DWORD m_idBlockOffset[IDB_BLOCKS];
 
 long long m_FlashSize;
@@ -274,9 +277,41 @@ static int MakeIDBlockData(PBYTE lpIDBlock, PBYTE loaderCodeBuffer, PBYTE loader
     return 0;
 }
 
+static int MakeNewIDBlockData(PBYTE lpIDBlock, PBYTE loaderHeadBuffer, PBYTE loaderCodeBuffer, PBYTE loaderDataBuffer)
+{
+    int i;
+    if (lpIDBlock == NULL || loaderHeadBuffer == NULL ||
+        loaderCodeBuffer == NULL || loaderDataBuffer == NULL)
+        return -1;
+
+    if (m_bRc4Disable) {
+        //close rc4 encryption
+        for (i = 0; i < m_dwLoaderHeadSize / SECTOR_SIZE; i++) {
+            P_RC4(loaderHeadBuffer + SECTOR_SIZE * i, SECTOR_SIZE);
+        }
+        for (i = 0; i < m_dwLoaderDataSize / SECTOR_SIZE; i++) {
+            P_RC4(loaderDataBuffer + SECTOR_SIZE * i, SECTOR_SIZE);
+        }
+        for (i = 0; i < m_dwLoaderSize / SECTOR_SIZE; i++) {
+            P_RC4(loaderCodeBuffer + SECTOR_SIZE * i, SECTOR_SIZE);
+        }
+    }
+    memcpy(lpIDBlock, loaderHeadBuffer, m_dwLoaderHeadSize);
+    memcpy(lpIDBlock + SECTOR_SIZE * m_usFlashHeadSec, loaderDataBuffer, m_dwLoaderDataSize);
+    memcpy(lpIDBlock + SECTOR_SIZE * (m_usFlashHeadSec + m_usFlashDataSec), loaderCodeBuffer, m_dwLoaderSize);
+    LOGI("MakeNewIDBlockData out\n");
+
+    return 0;
+}
+
 static void calcIDBCount()
 {
-    uiSecNumPerIDB = 4 + m_usFlashDataSec + m_usFlashBootSec;
+    if (m_NewIDBFlag == false) {
+        uiSecNumPerIDB = 4 + m_usFlashDataSec + m_usFlashBootSec;
+    } else {
+        uiSecNumPerIDB = m_usFlashHeadSec + m_usFlashDataSec + m_usFlashBootSec;
+    }
+
     usPhyBlokcPerIDB = ((uiSecNumPerIDB > 0) ? ((uiSecNumPerIDB - 1) / 8 + 1) : (uiSecNumPerIDB));
     LOGI("usPhyBlokcPerIDB = %d.\n", usPhyBlokcPerIDB);
 }
@@ -305,7 +340,7 @@ static int reserveIDBlock()
 
 static int WriteIDBlock(PBYTE lpIDBlock, DWORD dwSectorNum, char *dest_path)
 {
-    LOGE("WriteIDBlock start %s \n", dest_path);
+    LOGI("WriteIDBlock start %s \n", dest_path);
     // int fd_dest = open("/tmp/loader2.txt", O_RDWR|O_SYNC, 0);
     int fd_dest = open(dest_path, O_CREAT | O_RDWR | O_SYNC | O_TRUNC, 0);
     if (fd_dest < 0) {
@@ -317,7 +352,7 @@ static int WriteIDBlock(PBYTE lpIDBlock, DWORD dwSectorNum, char *dest_path)
         //debug for 3308
         //256 为128k 的起始位置
         //每256k 备份一份
-        lseek64(fd_dest, (i * 512)*SECTOR_SIZE, SEEK_SET);
+        lseek64(fd_dest, (i * 1024)*SECTOR_SIZE, SEEK_SET);
         if (write(fd_dest, lpIDBlock, dwSectorNum * SECTOR_SIZE) != dwSectorNum * SECTOR_SIZE) {
             close(fd_dest);
             LOGE("[%s:%d] error (%s).\n", __func__, __LINE__, strerror(errno));
@@ -346,6 +381,13 @@ bool download_loader(PBYTE data_buf, int size, char *dest_path)
         return false;
     }
 
+    if (pBootHead->uiTag == 0x2052444C) {
+        m_NewIDBFlag = true;
+        LOGI("this is new IDB flag\n");
+    } else {
+        m_NewIDBFlag = false;
+    }
+
     if (pBootHead->ucRc4Flag) {
         m_bRc4Disable = true;
     } else {
@@ -364,6 +406,15 @@ bool download_loader(PBYTE data_buf, int size, char *dest_path)
     m_usFlashBootSec = PAGEALIGN(BYTE2SECTOR(m_dwLoaderSize)) * 4;
     LOGI("m_usFlashBootSec = %d, m_dwLoaderSize = %d.\n", m_usFlashBootSec, m_dwLoaderSize);
 
+    unsigned char *loaderHeadBuffer = NULL;
+    if (m_NewIDBFlag == true) {
+        char loaderHeadName[] = "FlashHead";
+        m_dwLoaderHeadSize = getLoaderSizeAndData(loaderHeadName, data_buf, &loaderHeadBuffer);
+        m_usFlashHeadSec = PAGEALIGN(BYTE2SECTOR(m_dwLoaderHeadSize)) * 4;
+        LOGI("m_usFlashHeadSec = %d, m_dwLoaderSize = %d.\n", m_usFlashHeadSec, m_dwLoaderHeadSize);
+    }
+
+
     calcIDBCount();
     reserveIDBlock();
 
@@ -380,9 +431,14 @@ bool download_loader(PBYTE data_buf, int size, char *dest_path)
     if ( !pIDBData )
         return false;
     memset(pIDBData, 0, uiSecNumPerIDB * SECTOR_SIZE);
-    if (MakeIDBlockData(pIDBData, loaderCodeBuffer, loaderDataBuffer) != 0 ) {
-        LOGE("[%s:%d] MakeIDBlockData failed.\n", __func__, __LINE__);
-        return false;
+
+    if (m_NewIDBFlag == true) {
+        MakeNewIDBlockData(pIDBData, loaderHeadBuffer, loaderCodeBuffer, loaderDataBuffer);
+    } else {
+        if (MakeIDBlockData(pIDBData, loaderCodeBuffer, loaderDataBuffer) != 0 ) {
+            LOGE("[%s:%d] MakeIDBlockData failed.\n", __func__, __LINE__);
+            return false;
+        }
     }
 
     if (WriteIDBlock(pIDBData, uiSecNumPerIDB, dest_path) != 0) {
@@ -392,6 +448,9 @@ bool download_loader(PBYTE data_buf, int size, char *dest_path)
     free(pIDBData);
     free(loaderCodeBuffer);
     free(loaderDataBuffer);
+    if (m_NewIDBFlag == true) {
+        free(loaderHeadBuffer);
+    }
 
     return true;
 }

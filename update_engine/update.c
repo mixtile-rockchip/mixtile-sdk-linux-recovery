@@ -234,7 +234,7 @@ bool RK_ota_set_partition(int partition)
 
 }
 
-static int ota_recovery_cmds (long long flash_offset, const char *dest_path)
+static int ota_recovery_cmds(long long flash_offset, const char *dest_path)
 {
     char data_buf[256];
     unsigned int write_count = 0;
