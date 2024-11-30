@@ -252,6 +252,34 @@ int ensure_path_mounted(const char* path)
             return -1;
         }
         return mtd_mount_partition(partition, v->mount_point, v->fs_type, 0);
+    }  else if (strcmp(v->fs_type, "ubi") == 0) {
+        // Mount UBIFS
+        char ubi_dev_path[20];
+        char *partition_name = NULL;
+        const MtdPartition* partition;
+
+        mtd_scan_partitions();
+
+        partition_name = strstr(v->device, "/dev/block/by-name/");
+        if (partition_name)
+            partition_name = partition_name + strlen("/dev/block/by-name/");
+        else
+            partition_name = v->device;
+
+        partition = mtd_find_partition_by_name(partition_name);
+        if (partition == NULL) {
+            LOGE("failed to find \"%s\" partition to mount at \"%s\"\n",
+                 v->device, v->mount_point);
+            return -1;
+        }
+
+        snprintf(ubi_dev_path, sizeof(ubi_dev_path), "/dev/ubi%d_0", partition->device_index);
+        result = mount(ubi_dev_path, v->mount_point, "ubifs", MS_NOATIME | MS_NODEV | MS_NODIRATIME, NULL);
+        if (result == 0)
+            return 0;
+
+        LOGE("failed to mount %s (%s)\n", v->mount_point, strerror(errno));
+        return -1;
     } else if (strcmp(v->fs_type, "ext4") == 0 ||
                strcmp(v->fs_type, "vfat") == 0 ||
                strcmp(v->fs_type, "ext2") == 0) {

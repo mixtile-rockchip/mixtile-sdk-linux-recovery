@@ -101,7 +101,7 @@ static int mtd_write(char *src_path, long long offset, long long size, long long
 
         // dd if=/mnt/sdcard/sdupdate.img bs=4 skip=2727533 count=3646464 | nandwrite -p /dev/block/by-name/recovery
         memset(mtd_write_erase_cmd, 0, sizeof(mtd_write_erase_cmd) / sizeof(mtd_write_erase_cmd[0]));
-        sprintf(mtd_write_erase_cmd, "nandwrite -p --input-skip=%d --input-size=%d -f %s %s",
+        sprintf(mtd_write_erase_cmd, "nandwrite -p --input-skip=%lld --input-size=%lld %s %s",
                 offset, size, dest_path, src_path);
         system_ret = system(mtd_write_erase_cmd);
     } else {
