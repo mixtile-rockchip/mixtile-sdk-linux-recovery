@@ -1,0 +1,261 @@
+# Copyright (C) 2024 Rockchip Electronics Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+import("//build/lite/config/component/lite_component.gni")
+
+# ===== Trimming switches (defaults: all on, override in product config) =====
+declare_args() {
+  rk_storage_emmc = true
+  rk_storage_mtd = true
+  rk_storage_ufs = true
+  rk_source_sd = true
+  rk_source_usb = true
+  rk_source_url = false
+  rk_diff_update = true
+  rk_gpt_update = true
+  rk_idblock_update = true
+  rk_ab_retry_boot = false  # false: SUCCESSFUL_BOOT=true (default), true: RETRY_BOOT=true
+  rk_ui_enable = false
+}
+
+# Makefile-style predefined default (`?= 1` semantics): if no upstream
+# declare_args / --gn-args set rk_ab_support, default to ON so the stock
+# recovery is full-featured. External configs (e.g. board config.gni) that
+# declare_args this variable take precedence.
+if (!defined(rk_ab_support)) {
+  rk_ab_support = true
+}
+
+# ===== Trimming -> defines =====
+config("rk_config") {
+  include_dirs = [ "include" ]
+  cflags_c = [ "-D_FILE_OFFSET_BITS=64" ]
+  defines = []
+  if (rk_storage_emmc) {
+    defines += [ "RK_STORAGE_EMMC" ]
+  }
+  if (rk_storage_mtd) {
+    defines += [ "RK_STORAGE_MTD" ]
+  }
+  if (rk_storage_ufs) {
+    defines += [ "RK_STORAGE_UFS" ]
+  }
+  if (rk_source_sd) {
+    defines += [ "RK_SOURCE_SD" ]
+  }
+  if (rk_source_usb) {
+    defines += [ "RK_SOURCE_USB" ]
+  }
+  if (rk_source_url) {
+    defines += [ "RK_SOURCE_URL" ]
+  }
+  if (rk_diff_update) {
+    defines += [ "RK_DIFF_UPDATE" ]
+  }
+  if (rk_gpt_update) {
+    defines += [ "RK_GPT_UPDATE" ]
+  }
+  if (rk_idblock_update) {
+    defines += [ "RK_IDBLOCK_UPDATE" ]
+  }
+  if (rk_ab_support) {
+    defines += [ "RK_AB_SUPPORT" ]
+    if (rk_ab_retry_boot) {
+      defines += [ "RETRY_BOOT" ]
+    } else {
+      defines += [ "SUCCESSFUL_BOOT" ]
+    }
+  }
+  if (rk_ui_enable) {
+    defines += [ "RK_UI_ENABLE" ]
+  }
+}
+
+# ===== Source sets (5 modules) =====
+
+source_set("rk_utils") {
+  sources = [
+    "utils/cmdline.c",
+    "utils/log.c",
+    "utils/process.c",
+    "utils/strlcat.c",
+    "utils/strlcpy.c",
+  ]
+  public_configs = [ ":rk_config" ]
+}
+
+source_set("rk_storage") {
+  sources = [
+    # device probing + mtd info are storage-domain; always compiled
+    # (device_is_mtd / mtd_parse_dev_num are used even in non-MTD builds).
+    "storage/device.c",
+    "storage/format.c",
+    "storage/fstab.c",
+    "storage/mount.c",
+    "storage/mounts.c",
+    "storage/mtd_info.c",
+    "storage/storage.c",
+  ]
+  if (rk_storage_emmc || rk_storage_ufs) {
+    sources += [ "storage/block_io.c" ]
+  }
+  if (rk_storage_mtd) {
+    sources += [
+      "storage/mtd.c",
+      "storage/ubi.c",
+    ]
+  }
+  public_configs = [ ":rk_config" ]
+}
+
+source_set("rk_bzip2") {
+  sources = [
+    "//third_party/bzip2/blocksort.c",
+    "//third_party/bzip2/bzlib.c",
+    "//third_party/bzip2/compress.c",
+    "//third_party/bzip2/crctable.c",
+    "//third_party/bzip2/decompress.c",
+    "//third_party/bzip2/huffman.c",
+    "//third_party/bzip2/randtable.c",
+  ]
+  include_dirs = [ "//third_party/bzip2" ]
+  cflags_c = [
+    "-w",
+    "-D_FILE_OFFSET_BITS=64",
+  ]
+}
+
+source_set("rk_core") {
+  sources = [
+    "core/bootmsg.c",
+    "core/checksum.c",
+    "core/download.c",
+    "core/flash.c",
+    "core/image.c",
+    "core/md5.c",
+    "core/slot.c",
+  ]
+  include_dirs = []
+  if (rk_idblock_update) {
+    sources += [ "core/flash_bootloader.c" ]
+  }
+  if (rk_gpt_update) {
+    sources += [ "core/flash_parameter.c" ]
+  }
+  if (rk_diff_update) {
+    sources += [
+      "core/flash_diff.c",
+      "core/patch.c",
+    ]
+    include_dirs += [ "//third_party/bzip2" ]
+  }
+  if (rk_source_url) {
+    # download.c is always compiled (above); only its curl path needs the
+    # curl headers (the http code inside is #if RK_SOURCE_URL-gated).
+    include_dirs += [ "//third_party/curl/include" ]
+  }
+  public_configs = [ ":rk_config" ]
+}
+
+source_set("rk_minui") {
+  sources = [
+    "ui/minui/events.c",
+    "ui/minui/graphics.c",
+    "ui/minui/graphics_drm.c",
+    "ui/minui/graphics_fbdev.c",
+    "ui/minui/resources.c",
+  ]
+  include_dirs = [
+    "ui",
+    "//third_party/libdrm",
+    "//third_party/libdrm/include/drm",
+    "//third_party/libpng",
+    "$root_gen_dir/third_party/libpng/libpng-1.6.44",
+  ]
+  public_configs = [ ":rk_config" ]
+}
+
+# ===== Executables =====
+
+executable("updateEngine") {
+  sources = [
+    "app/common/source.c",
+    "app/common/source_ota.c",
+    "app/engine/cmd_misc.c",
+    "app/engine/cmd_slot.c",
+    "app/engine/cmd_upgrade.c",
+    "app/engine/engine_cmd.c",
+    "app/engine/engine_main.c",
+    "app/engine/upgrade_filter.c",
+    "app/engine/upgrade_plan.c",
+    "app/engine/upgrade_precheck.c",
+    "app/engine/upgrade_resolver.c",
+    "app/engine/upgrade_version.c",
+  ]
+  deps = [
+    ":rk_core",
+    ":rk_storage",
+    ":rk_utils",
+  ]
+  if (rk_diff_update) {
+    deps += [ ":rk_bzip2" ]
+  }
+  ldflags = [ "-lpthread" ]
+  if (rk_source_url) {
+    ldflags += [
+      "-L" + rebase_path("$root_out_dir/unstripped/usr/lib"),
+      "-lcurl_shared",
+    ]
+  }
+  output_dir = "$root_out_dir"
+}
+
+executable("recovery") {
+  sources = [
+    "app/common/source.c",
+    "app/common/source_ota.c",
+    "app/recovery/recovery_cmd.c",
+    "app/recovery/recovery_main.c",
+    "ui/menu.c",
+  ]
+  if (rk_ui_enable) {
+    sources += [ "ui/ui.c" ]
+  } else {
+    sources += [ "ui/ui_null.c" ]
+  }
+  deps = [
+    ":rk_core",
+    ":rk_storage",
+    ":rk_utils",
+  ]
+  if (rk_diff_update) {
+    deps += [ ":rk_bzip2" ]
+  }
+  if (rk_ui_enable) {
+    deps += [ ":rk_minui" ]
+  }
+
+  ldflags = [ "-lpthread" ]
+  if (rk_ui_enable || rk_source_url) {
+    ldflags += [ "-L" + rebase_path("$root_out_dir/unstripped/usr/lib") ]
+  }
+  if (rk_ui_enable) {
+    ldflags += [
+      "-ldrm",
+      "-lpng",
+    ]
+  }
+  if (rk_source_url) {
+    ldflags += [ "-lcurl_shared" ]
+  }
+
+  include_dirs = [ "ui" ]
+  output_dir = "$root_out_dir"
+}
+
+group("rockchip_recovery") {
+  deps = [
+    ":recovery",
+    ":updateEngine",
+  ]
+}

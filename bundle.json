@@ -1,0 +1,32 @@
+{
+    "name": "@ohos/rockchip_recovery",
+    "description": "Rockchip recovery and updateEngine for OTA firmware upgrade (SD/USB/OTA), A/B slot management, and MISC partition operations.",
+    "version": "2.0.0",
+    "license": "Apache-2.0",
+    "publishAs": "code-segment",
+    "segment": {
+        "destPath": "third_party/rockchip_recovery"
+    },
+    "dirs": {},
+    "scripts": {},
+    "component": {
+        "name": "rockchip_recovery",
+        "subsystem": "thirdparty",
+        "syscap": [],
+        "features": [],
+        "adapted_system_type": [ "small" ],
+        "rom": "",
+        "ram": "",
+        "deps": {
+            "components": [],
+            "third_party": []
+        },
+        "build": {
+            "sub_component": [
+                "//third_party/rockchip_recovery:rockchip_recovery"
+            ],
+            "inner_kits": [],
+            "test": []
+        }
+    }
+}

@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# A/B boot control: on successful userspace boot, mark the current slot
+# as confirmed-good via updateEngine --misc=now.
+#
+
+case "$1" in
+  start)
+        /usr/bin/updateEngine --misc=now
+        ;;
+  stop)
+        printf "stop finished\n"
+        ;;
+  *)
+        echo "Usage: $0 {start|stop}"
+        exit 1
+        ;;
+esac
+exit 0
