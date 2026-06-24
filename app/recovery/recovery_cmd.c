@@ -252,8 +252,12 @@ static int start_updateEngine(const char *binary, char *args[], int *pipefd)
             pr_dbg("set_progress from updateEngine\n");
         } else if (strcmp(command, "ui_print") == 0) {
             char *str = strtok(NULL, "\n");
-            if (str)
+            if (str) {
                 pr_info("updateEngine: %s\n", str);
+#if defined(RK_UI_ENABLE)
+                ui_print("%s\n", str);
+#endif
+            }
         }
     }
     if (ferror(from_child)) {
@@ -280,6 +284,9 @@ static int start_updateEngine(const char *binary, char *args[], int *pipefd)
         int code = WEXITSTATUS(status);
         if (code != 0) {
             pr_err("updateEngine exited with status %d\n", code);
+#if defined(RK_UI_ENABLE)
+            ui_print("Update FAILED.\n");
+#endif
             return -1;
         }
         return 0;
@@ -387,12 +394,20 @@ static void handle_media_post_upgrade(struct storage_mgr *mgr,
 
     /* Dual writer is always on, so pr_info / pr_err naturally reach both
      * the serial console and the log file — no special handling needed. */
-    if (status == 0)
+    if (status == 0) {
         pr_info("Update SUCCESS. Please remove %s! Waiting for reboot.\n",
                 media_label);
-    else
+#if defined(RK_UI_ENABLE)
+        ui_print("Please remove %s!\n", media_label);
+        ui_print("Waiting for reboot...\n");
+#endif
+    } else {
         pr_err("Update FAILED (status=%d). Please remove %s!\n",
                status, media_label);
+#if defined(RK_UI_ENABLE)
+        ui_print("Please remove %s!\n", media_label);
+#endif
+    }
 
     if (media_dev_copy) {
         while (access(media_dev_copy, F_OK) == 0)
@@ -445,6 +460,9 @@ int run_ota_update(const struct recovery_args *args)
 
     if (mounted != 0) {
         pr_err("mount %s failed after retries\n", update_package);
+#if defined(RK_UI_ENABLE)
+        ui_print("Cannot mount %s.\n", update_package);
+#endif
         return -1;
     }
 
@@ -456,7 +474,6 @@ int run_ota_update(const struct recovery_args *args)
     umount_all_except(keep);
 
     pr_info("upgrading from %s\n", update_package);
-
     /* WHAT to upgrade comes from the --upgrade= recovery arg (set by whoever
      * wrote the BCB / command file; get_args parsed it into upgrade_list).
      * No more BCB needupdate bitmask. */

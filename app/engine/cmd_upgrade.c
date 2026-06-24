@@ -15,6 +15,7 @@
 
 #define __MODULE__ "cmd:upgrade"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -28,11 +29,23 @@
 
 /* ---- Execute upgrade ---- */
 
+static void upgrade_print(struct upgrade_context *ctx, const char *fmt, ...)
+{
+    if (!ctx || !ctx->print_cb)
+        return;
+
+    char prompt[160];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(prompt, sizeof(prompt), fmt, ap);
+    va_end(ap);
+
+    ctx->print_cb(prompt, ctx->cb_ctx);
+}
+
 static int execute_upgrade(struct upgrade_context *ctx,
                            struct upgrade_item *items, int count)
 {
-    char prompt[128];
-
     for (int i = 0; i < count; i++) {
         if (!items[i].need_update || !items[i].flash)
             continue;
@@ -42,30 +55,18 @@ static int execute_upgrade(struct upgrade_context *ctx,
         /* Mount and capacity were validated for all items in precheck_items
          * before any write started. */
 
-        if (ctx->print_cb) {
-            snprintf(prompt, sizeof(prompt), "[%s] upgrade start...\n",
-                     items[i].name);
-            ctx->print_cb(prompt, ctx->cb_ctx);
-        }
+        upgrade_print(ctx, "[%s] upgrade start...\n", items[i].name);
 
         int ret = items[i].flash(&items[i], ctx->image_path);
         if (ret != 0) {
             pr_err("flash %s failed (ret=%d)\n", items[i].name, ret);
-            if (ctx->print_cb) {
-                snprintf(prompt, sizeof(prompt), "[%s] upgrade fail\n",
-                         items[i].name);
-                ctx->print_cb(prompt, ctx->cb_ctx);
-            }
+            upgrade_print(ctx, "[%s] upgrade fail\n", items[i].name);
             if (ctx->status_cb)
                 ctx->status_cb(ctx->cb_ctx, RK_UPGRADE_ERR);
             return -1;
         }
 
-        if (ctx->print_cb) {
-            snprintf(prompt, sizeof(prompt), "[%s] upgrade success!\n",
-                     items[i].name);
-            ctx->print_cb(prompt, ctx->cb_ctx);
-        }
+        upgrade_print(ctx, "[%s] upgrade success!\n", items[i].name);
 
         /*
          * SD/USB: skip the post-flash readback verify. This is purely a time
@@ -103,6 +104,7 @@ static int execute_upgrade(struct upgrade_context *ctx,
                                         items[i].img_offset,
                                         items[i].img_size)) {
             pr_err("verify %s FAILED\n", items[i].name);
+            upgrade_print(ctx, "[%s] verify fail\n", items[i].name);
             if (ctx->status_cb)
                 ctx->status_cb(ctx->cb_ctx, RK_UPGRADE_ERR);
             return -1;
@@ -137,6 +139,7 @@ int upgrade_run(struct upgrade_context *ctx)
         ctx->storage = storage_init();
         if (!ctx->storage) {
             pr_err("storage_init failed\n");
+            upgrade_print(ctx, "storage init failed\n");
             return -1;
         }
     }
@@ -155,12 +158,14 @@ int upgrade_run(struct upgrade_context *ctx)
      * usually on faster storage than the source medium. */
     if (!ctx->image_url[0]) {
         pr_err("no image URL specified\n");
+        upgrade_print(ctx, "no image URL specified\n");
         return -1;
     }
 
     const char *target = ctx->save_path[0] ? ctx->save_path : ctx->image_url;
     if (download_file(ctx->image_url, target) != 0) {
         pr_err("stage image (%s -> %s) failed\n", ctx->image_url, target);
+        upgrade_print(ctx, "stage image failed\n");
         return -1;
     }
     /* From here on the pipeline reads the staged local file, not image_url. */
@@ -168,6 +173,7 @@ int upgrade_run(struct upgrade_context *ctx)
 
     if (access(ctx->image_path, F_OK) != 0) {
         pr_err("image not found: %s\n", ctx->image_path);
+        upgrade_print(ctx, "image not found: %s\n", ctx->image_path);
         return -1;
     }
 
@@ -176,6 +182,7 @@ int upgrade_run(struct upgrade_context *ctx)
     memset(&hdr, 0, sizeof(hdr));
     if (image_parse(ctx->image_path, &hdr) != 0) {
         pr_err("image_parse failed\n");
+        upgrade_print(ctx, "image parse failed\n");
         return -1;
     }
 
@@ -187,10 +194,13 @@ int upgrade_run(struct upgrade_context *ctx)
     struct upgrade_item items[MAX_PARTS];
     memset(items, 0, sizeof(items));
     int count = build_upgrade_list(ctx, &hdr, items, MAX_PARTS);
-    if (count < 0)
+    if (count < 0) {
+        upgrade_print(ctx, "build upgrade plan failed\n");
         return -1;      /* disk-level resolution failed — nothing written */
+    }
     if (count == 0) {
         pr_err("no partitions to upgrade\n");
+        upgrade_print(ctx, "no partitions to upgrade\n");
         return -1;
     }
 
@@ -203,6 +213,7 @@ int upgrade_run(struct upgrade_context *ctx)
     /* 6.5 Pre-flight: validate every target before writing a single byte. */
     if (precheck_items(ctx, items, count) != 0) {
         pr_err("pre-upgrade check failed — nothing written\n");
+        upgrade_print(ctx, "pre-upgrade check failed, nothing written\n");
         if (ctx->status_cb)
             ctx->status_cb(ctx->cb_ctx, RK_UPGRADE_ERR);
         return -1;
@@ -226,8 +237,7 @@ int upgrade_run(struct upgrade_context *ctx)
     /* 10. Notify success */
     if (ctx->status_cb)
         ctx->status_cb(ctx->cb_ctx, RK_UPGRADE_FINISHED);
-    if (ctx->print_cb)
-        ctx->print_cb((char *)"updateEngine upgrade OK!\n", ctx->cb_ctx);
+    upgrade_print(ctx, "Update SUCCESS.\n");
 
     pr_info("=== upgrade_run complete ===\n");
     return 0;

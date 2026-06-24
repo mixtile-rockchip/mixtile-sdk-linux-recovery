@@ -166,6 +166,12 @@ int main(int argc, char **argv)
         coldboot_wait++;
     }
 
+#if defined(RK_UI_ENABLE)
+    ui_init();
+    ui_set_background(BACKGROUND_ICON_INSTALLING);
+    ui_show_text(1);
+#endif
+
     /* Load filesystem table */
     load_volume_table();
 
